@@ -1,12 +1,8 @@
 substitutions:
-  variant: esp32s3
+  variant: esp32c3
   # Metadata/backward-compatible value only; packages/esp32.yaml no longer
   # passes `board` to the ESPHome esp32 component.
-  board: esp32-s3-devkitc-1
+  board: esp32-c3-devkitm-1
 
 packages:
   esp32: !include esp32.yaml
-
-esphome:
-  platformio_options:
-    board_build.flash_mode: dio

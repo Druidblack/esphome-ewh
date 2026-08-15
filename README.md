@@ -132,6 +132,21 @@ You can download and use example configurations for:
 - [EHU](ehu.yaml)
 - [ETS](ets.yaml)
 
+### ESP32 hardware selection
+
+Current ESPHome versions recommend selecting ESP32 hardware by MCU `variant` rather than by a fixed PlatformIO `board`. The common `packages/esp32.yaml` package therefore does not inject a hardware `board` anymore.
+
+For ESP32-C3 you can keep `packages/esp32.yaml` and override the variant in your device configuration:
+
+```yaml
+esp32:
+  variant: esp32c3
+  framework:
+    type: esp-idf
+```
+
+Alternatively, use the convenience package `packages/esp32_c3.yaml`. For ESP32-S3 use `packages/esp32_s3.yaml`.
+
 You could use my video with [flashing instructions](https://t.me/esphome_tion/13868) from another project, but with your configuration.
 
 ## Experimental cloud support

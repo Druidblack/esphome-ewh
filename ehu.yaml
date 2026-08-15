@@ -39,7 +39,7 @@ packages:
       # - packages/cloud.yaml
       # Required package, do not comment
       - packages/base.yaml
-      # Required package, replace with esp8266.yaml if you use ESP8266, esp32.yaml for ESP32 or esp32_s3.yaml for ESP32-S3
+      # Required hardware package: esp32.yaml=ESP32, esp32_c3.yaml=ESP32-C3, esp32_s3.yaml=ESP32-S3, esp8266.yaml=ESP8266
       - packages/esp32.yaml
 
 ## Enable Home Assistant API connection. Please comment if you plan to use MQTT.
