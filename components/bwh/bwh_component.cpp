@@ -12,6 +12,7 @@ void BWHComponent::setup() {
 }
 
 void BWHComponent::on_state(const bwh_state_t &state) {
+  this->mark_valid_state_frame_();
   (void) state;
   this->publish_diagnostics_();
 }

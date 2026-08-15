@@ -27,25 +27,12 @@ class RKAComponent : public component_t, public listener_t {
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
   void on_frame(const rka_any_frame_t &frame, size_t size) override {
-    const uint32_t now = millis();
-    this->last_valid_frame_ms_ = now;
+    // A frame reaching this point has already passed the transport-level CRC
+    // check. Keep this timestamp for low-level UART diagnostics only. State
+    // communication is marked separately, after the device-specific listener
+    // has validated packet size and semantic contents.
+    this->last_valid_frame_ms_ = millis();
     this->has_valid_frame_ = true;
-
-    // A valid device-type/error/result frame proves that UART is alive, but it
-    // does not prove that the device state can actually be read. Base the
-    // communication watchdog on state frames so a partially responsive device
-    // cannot mask a stalled state channel.
-    if (frame.type == PACKET_RSP_STATE || frame.type == PACKET_CMD_STATE) {
-      this->last_state_frame_ms_ = now;
-      this->has_state_frame_ = true;
-      if (this->communication_warning_ && this->device_confirmed_) {
-        ESP_LOGI(internal::TAG_COMPONENT, "Communication restored");
-        this->communication_warning_ = false;
-        this->recovery_attempts_ = 0;
-        this->last_recovery_request_ms_ = 0;
-        this->status_clear_warning();
-      }
-    }
     listener_t::on_frame(frame, size);
   }
 
@@ -128,6 +115,19 @@ class RKAComponent : public component_t, public listener_t {
   uint32_t last_recovery_request_ms_{};
   uint32_t recovery_attempts_{};
   uint32_t dev_type_errors_{};
+
+  void mark_valid_state_frame_() {
+    const uint32_t now = millis();
+    this->last_state_frame_ms_ = now;
+    this->has_state_frame_ = true;
+    if (this->communication_warning_ && this->device_confirmed_) {
+      ESP_LOGI(internal::TAG_COMPONENT, "Communication restored");
+      this->communication_warning_ = false;
+      this->recovery_attempts_ = 0;
+      this->last_recovery_request_ms_ = 0;
+      this->status_clear_warning();
+    }
+  }
 
   void communication_watchdog_() {
     const uint32_t now = millis();

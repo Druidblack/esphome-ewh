@@ -22,6 +22,7 @@ substitutions:
 ## Please do not change packages order it is very important, just comment/uncomment
 packages:
   remote:
+    refresh: 5min
     url: https://github.com/Druidblack/esphome-ewh
     ref: master # cant use substitutions here
     files:
@@ -60,6 +61,8 @@ wifi:
   ssid: $wifi_ssid
   password: $wifi_password
   power_save_mode: none
+  ap:
+    password: $wifi_ap_password
 
 time:
   - platform: $time_platform

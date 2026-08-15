@@ -19,13 +19,10 @@ substitutions:
   tx_pin: TX
   rx_pin: RX
 
-  ## TODO remove on release
-  project_source_refresh: 600s
-
 ## please do not change packages order it is very important, just comment/uncomment
 packages:
   remote:
-    refresh: 0s
+    refresh: 5min
     url: https://github.com/Druidblack/esphome-ewh
     ref: master # cant use substitutions here
     files:
@@ -58,6 +55,8 @@ wifi:
   ssid: $wifi_ssid
   password: $wifi_password
   power_save_mode: none
+  ap:
+    password: $wifi_ap_password
 
 time:
   - platform: $time_platform

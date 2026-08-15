@@ -24,6 +24,7 @@ void EWHComponent::on_invalid_state(const char *reason) {
 }
 
 void EWHComponent::on_state(const ewh_state_t &state) {
+  this->mark_valid_state_frame_();
 #ifdef USE_TIME
   this->sync_clock_if_needed_(state);
 #endif

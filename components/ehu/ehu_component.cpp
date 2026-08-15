@@ -65,6 +65,7 @@ void EHUComponent::on_invalid_state(const char *reason) {
 }
 
 void EHUComponent::on_state(const ehu_state_t &state) {
+  this->mark_valid_state_frame_();
   this->st_ = state;
   this->has_st_ = true;
 

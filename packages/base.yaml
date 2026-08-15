@@ -2,7 +2,7 @@ substitutions:
   project_branch: master
   project_version: 2026.8-stable
   project_source: github://Druidblack/esphome-ewh@$project_branch
-  project_source_refresh: 12h
+  project_source_refresh: 5min
   node_name: "#" # used invalid char to force user override
   friendly_name: $node_name
   node_add_mac_suffix: "true"

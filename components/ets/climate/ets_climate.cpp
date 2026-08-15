@@ -112,6 +112,7 @@ void ETSClimate::clear_pending_command_() {
 }
 
 void ETSClimate::on_state(const ets_state_t &state) {
+  this->mark_valid_state_frame_();
   this->api_->init_unk0C(state.unk0C);
 
   if (this->pending_command_ && this->verification_requested_) {
