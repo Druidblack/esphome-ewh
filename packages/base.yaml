@@ -1,20 +1,13 @@
 substitutions:
   project_branch: master
-  # project version
-  # project_version: $project_branch
-  project_version: 2025-master
-  # project git source
-  project_source: github://dentra/esphome-ewh@$project_branch
-  # project source refresh interval
+  project_version: 2026.8-stable
+  project_source: github://Druidblack/esphome-ewh@$project_branch
   project_source_refresh: 12h
-  # node name
   node_name: "#" # used invalid char to force user override
-  # name for main entity and prefix for all others.
   friendly_name: $node_name
-  # add suffix for node name to have one firmware for many devices.
   node_add_mac_suffix: "true"
-
-  vport_version: "master" #2023.2.0
+  # Known ESPHome 2026.3+ compatible revision; do not follow moving master.
+  vport_version: "b88512d3fcf10f81e1d762e139b3b7b31d5c37e6"
   vport_source: github://dentra/esphome-components@$vport_version
   vport_source_refresh: 1d
 
@@ -22,30 +15,28 @@ esphome:
   name: $node_name
   friendly_name: $friendly_name
   name_add_mac_suffix: $node_add_mac_suffix
-  comment: https://t.me/dentra_blog
+  comment: https://github.com/Druidblack/esphome-ewh
   project:
-    name: "dentra.ewh-$framework_type-$board"
+    name: "druidblack.ewh-$framework_type-$board"
     version: "$project_version"
-  min_version: "2024.12.4" # can't use substitutions here
+  min_version: "2026.6.0"
 
 preferences:
   flash_write_interval: 10min
 
 wifi:
+  power_save_mode: none
   ap:
 captive_portal:
 
 ota:
   - platform: esphome
-
 logger:
-  # Make sure logging is not using the serial port
   baud_rate: 0
 
 external_components:
   - source: $vport_source
     components: [crash_info, etl, otax, vport]
     refresh: $vport_source_refresh
-
   - source: $project_source
     refresh: $project_source_refresh

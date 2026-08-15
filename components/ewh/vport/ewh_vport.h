@@ -1,7 +1,6 @@
 #pragma once
 
-#include "esphome/components/vport/vport_uart.h"
-#include "../../rka_api/rka_api.h"
+#include "../../rka_api/rka_vport.h"
 #include "../ewh_data.h"
 
 namespace esphome {
@@ -12,10 +11,11 @@ struct ewh_config {
 };
 
 using EWHUartIO = rka_api::RKAUartIO<ewh_config::max_data_size>;
+using EWHVPortBase = rka_api::StableRKAVPortUARTComponent<EWHUartIO>;
 
-class EWHVPort : public rka_api::RKAVPortUARTComponent<EWHUartIO> {
+class EWHVPort : public EWHVPortBase {
  public:
-  explicit EWHVPort(EWHUartIO *io) : rka_api::RKAVPortUARTComponent<EWHUartIO>(io) {}
+  explicit EWHVPort(EWHUartIO *io) : EWHVPortBase(io) {}
   void dump_config() override;
 };
 

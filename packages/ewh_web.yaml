@@ -1,7 +1,7 @@
 # This package enables additional sensors showed in web interface.
 # Requires to be included after ewh.yaml
 # packages:
-#   web: github://dentra/esphome-ewh/packages/ewh-web.yaml@$project_branch
+#   web: github://Druidblack/esphome-ewh/packages/ewh-web.yaml@$project_branch
 # or if you like from local filesystem:
 #   web: !include packages/web.yaml
 

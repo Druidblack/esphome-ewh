@@ -61,7 +61,13 @@ using std::enable_if_t;
 using std::is_trivially_copyable;
 using std::is_invocable;
 
-inline uint32_t millis() { return 0; }
+inline uint32_t &test_millis_storage() {
+  static uint32_t value{};
+  return value;
+}
+inline uint32_t millis() { return test_millis_storage(); }
+inline void test_set_millis(uint32_t value) { test_millis_storage() = value; }
+inline void test_advance_millis(uint32_t value) { test_millis_storage() += value; }
 
 inline void get_mac_address_raw(uint8_t *mac) { mac[0] = mac[1] = mac[2] = mac[3] = mac[4] = mac[5] = 0; }
 
@@ -107,7 +113,7 @@ constexpr uint32_t encode_uint24(uint8_t byte1, uint8_t byte2, uint8_t byte3) {
   return ((static_cast<uint32_t>(byte1) << 16) | (static_cast<uint32_t>(byte2) << 8) | (static_cast<uint32_t>(byte3)));
 }
 
-inline void delay(size_t ms) {}
+inline void delay(size_t ms) { test_advance_millis(ms); }
 
 /// Helper class to deduplicate items in a series of values.
 template<typename T> class Deduplicator {

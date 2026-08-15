@@ -1,38 +1,18 @@
 # This file enables main EWH services.
 external_components:
-  - source: github://dentra/esphome-ewh@$project_version
+  - source: github://Druidblack/esphome-ewh@$project_branch
 
 logger:
-  # Make sure logging is not using the serial port
   baud_rate: 0
-
 uart:
   tx_pin: TX
   rx_pin: RX
   baud_rate: 9600
 
-# api:
-#   services:
-#     # configure HA available command to push binary command to the bioler.
-#     # command must not contain any prefix or checksum, they will adds automatically.
-#     # for example just write 081004 or 08 10 04 or even 08.10.04 to execute a query to get the current state.
-#     - service: exec
-#       variables:
-#         data: string
-#       then:
-#         lambda: id(aah).exec(data);
-#     # configure HA available command to set timer
-#     - service: timer
-#       variables:
-#         hours: int
-#         minutes: int
-#         temperature: int
-#       then:
-#         lambda: id(wh).set_timer(hours, minutes, temperature);
-#   reboot_timeout: 0s
-
 vport:
   - platform: ewh
+    command_interval: 50ms
+    command_queue_size: 32
 
 ewh:
 
@@ -40,6 +20,35 @@ climate:
   - platform: ewh
     id: whc
     name: None # use friendly_name
-    # Optional, Bacteria Stop Technology switch
     bst:
       name: "BST"
+    communication:
+      name: "Communication"
+      disabled_by_default: true
+    communication_age:
+      name: "Communication age"
+      disabled_by_default: true
+    rx_frames:
+      name: "UART RX Frames"
+      disabled_by_default: true
+    tx_frames:
+      name: "UART TX Frames"
+      disabled_by_default: true
+    crc_errors:
+      name: "UART CRC Errors"
+      disabled_by_default: true
+    frame_timeouts:
+      name: "UART Frame Timeouts"
+      disabled_by_default: true
+    invalid_frames:
+      name: "UART Invalid Frames"
+      disabled_by_default: true
+    command_retries:
+      name: "Command Retries"
+      disabled_by_default: true
+    command_failures:
+      name: "Command Failures"
+      disabled_by_default: true
+    queue_overflows:
+      name: "Command Queue Overflows"
+      disabled_by_default: true

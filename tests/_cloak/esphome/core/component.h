@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <functional>
 #include <cmath>
@@ -121,17 +122,17 @@ class Component {
 
   // virtual bool can_proceed();
 
-  // bool status_has_warning();
+  bool status_has_warning() const { return this->component_state_ & STATUS_LED_WARNING; }
 
-  // bool status_has_error();
+  bool status_has_error() const { return this->component_state_ & STATUS_LED_ERROR; }
 
-  // void status_set_warning();
+  void status_set_warning() { this->component_state_ |= STATUS_LED_WARNING; }
 
-  // void status_set_error();
+  void status_set_error() { this->component_state_ |= STATUS_LED_ERROR; }
 
-  // void status_clear_warning();
+  void status_clear_warning() { this->component_state_ &= ~STATUS_LED_WARNING; }
 
-  // void status_clear_error();
+  void status_clear_error() { this->component_state_ &= ~STATUS_LED_ERROR; }
 
   // void status_momentary_warning(const std::string &name, uint32_t length = 5000);
 

@@ -67,6 +67,15 @@ template<class vport_t /*, std::enable_if_t<std::is_base_of_v<vport::VPort, vpor
 
   void add_listener(RKAListenerBase *listener) { this->vport_->add_listener(listener); }
 
+  uint32_t get_rx_frames() const { return this->vport_->get_rx_frames(); }
+  uint32_t get_tx_frames() const { return this->vport_->get_tx_frames(); }
+  uint32_t get_crc_errors() const { return this->vport_->get_crc_errors(); }
+  uint32_t get_frame_timeouts() const { return this->vport_->get_frame_timeouts(); }
+  uint32_t get_parser_invalid_frames() const { return this->vport_->get_parser_invalid_frames(); }
+  uint32_t get_queue_overflows() const { return this->vport_->get_queue_overflows(); }
+  size_t get_queue_size() const { return this->vport_->get_queue_size(); }
+  size_t get_queue_capacity() const { return this->vport_->get_queue_capacity(); }
+
   void request_dev_type() const {
     ESP_LOGD(internal::TAG_API, "Request dev type");
     this->write(PACKET_REQ_DEV_TYPE);

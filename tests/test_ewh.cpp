@@ -1,5 +1,6 @@
 #include "esphome/components/vport/vport_uart.h"
 #include "../components/ewh/ewh_component.h"
+#include "../components/rka_api/uart_frame_io.h"
 
 #include "utils.h"
 
@@ -82,5 +83,76 @@ bool test_ewh_rsp_8a() {
   return res;
 }
 
+
+
+bool test_ewh_invalid_state_rejected() {
+  bool res = true;
+  // state=0x09 is outside the known EWH state enum; CRC is recalculated.
+  auto payload = cloak::from_hex("09 10 11 00 00 00 00 00 00");
+  std::vector<uint8_t> frame{0xAA, 0x0A, 0x09};
+  frame.insert(frame.end(), payload.begin(), payload.end());
+  uint8_t crc{};
+  for (auto b : frame) crc += b;
+  frame.push_back(crc);
+  uart::UARTComponent uart(frame);
+  ewh::EWHUartIO io(&uart);
+  ewh::EWHVPort vport(&io);
+  ewh::EWHApi api(&vport);
+  EWHComponentTest comp(&api);
+  cloak::setup_and_loop({&vport, &comp});
+  res &= comp.get_semantic_invalid_frames() == 1;
+  return res;
+}
+
+bool test_uart_partial_frame_timeout_recovery() {
+  bool res = true;
+  esphome::test_set_millis(0);
+  rka_api::UartFrameIO<32> io;
+  int frames{};
+  io.set_reader([&frames](const void *, size_t) { frames++; });
+
+  uart::UARTComponent partial(cloak::from_hex("AA 0A 09 03"));
+  io.read(&partial);
+  esphome::test_advance_millis(101);
+
+  uart::UARTComponent full(cloak::from_hex("AA 0A 09 03 10 11 00 00 00 00 00 00 E1"));
+  io.read(&full);
+  res &= io.get_frame_timeouts() == 1;
+  res &= io.get_rx_frames() == 1;
+  res &= frames == 1;
+  return res;
+}
+
+bool test_uart_crc_counter() {
+  bool res = true;
+  esphome::test_set_millis(0);
+  rka_api::UartFrameIO<32> io;
+  uart::UARTComponent uart(cloak::from_hex("AA 0A 09 03 10 11 00 00 00 00 00 00 E0"));
+  io.read(&uart);
+  res &= io.get_crc_errors() == 1;
+  res &= io.get_rx_frames() == 0;
+  return res;
+}
+
+bool test_ewh_queue_overflow_is_visible() {
+  bool res = true;
+  uart::UARTComponent uart;
+  ewh::EWHUartIO io(&uart);
+  ewh::EWHVPort vport(&io);
+  ewh::EWHApi api(&vport);
+  esphome::test_set_millis(0);
+  for (int i = 0; i < 40; i++) {
+    api.request_state();
+    esphome::test_advance_millis(101);
+  }
+  res &= vport.get_queue_overflows() > 0;
+  res &= vport.get_queue_size() <= vport.get_queue_capacity();
+  return res;
+}
+
 REGISTER_TEST(test_ewh);
 REGISTER_TEST(test_ewh_rsp_8a);
+REGISTER_TEST(test_ewh_invalid_state_rejected);
+REGISTER_TEST(test_uart_partial_frame_timeout_recovery);
+REGISTER_TEST(test_uart_crc_counter);
+REGISTER_TEST(test_ewh_queue_overflow_is_visible);

@@ -1,7 +1,7 @@
 # This file enables cloud support to your dongle.
 # Enable it via package include:
 # packages:
-#   cloud: github://dentra/esphome-ewh/ewh-pkg-cloud.yaml@$project_branch
+#   cloud: github://Druidblack/esphome-ewh/ewh-pkg-cloud.yaml@$project_branch
 # or if you like from local filesystem:
 #   cloud: !include ewh-pkg-cloud.yaml
 

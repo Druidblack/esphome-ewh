@@ -15,6 +15,7 @@ from esphome.const import (
     DEVICE_CLASS_RUNNING,
     DEVICE_CLASS_TEMPERATURE,
     ENTITY_CATEGORY_CONFIG,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
     UNIT_CELSIUS,
     UNIT_PERCENT,
@@ -22,7 +23,7 @@ from esphome.const import (
 
 from .. import rka_api  # pylint: disable=relative-beyond-top-level
 
-CODEOWNERS = ["@dentra"]
+CODEOWNERS = ["@Druidblack"]
 AUTO_LOAD = [
     "rka_api",
     "switch",
@@ -52,12 +53,22 @@ CONF_LED_BRIGHTNESS = "led_brightness"
 CONF_LED_PRESET = "led_preset"
 CONF_LED_TOP = "led_top"
 CONF_LED_BOTTOM = "led_bottom"
+CONF_COMMUNICATION = "communication"
+CONF_COMMUNICATION_AGE = "communication_age"
+CONF_RX_FRAMES = "rx_frames"
+CONF_TX_FRAMES = "tx_frames"
+CONF_CRC_ERRORS = "crc_errors"
+CONF_FRAME_TIMEOUTS = "frame_timeouts"
+CONF_INVALID_FRAMES = "invalid_frames"
+CONF_COMMAND_RETRIES = "command_retries"
+CONF_COMMAND_FAILURES = "command_failures"
+CONF_QUEUE_OVERFLOWS = "queue_overflows"
 
 rka_ns = rka_api.rka_ns
 ehu_ns = cg.esphome_ns.namespace("ehu")
 
 EHUApi = ehu_ns.class_("EHUApi", cg.Component)
-EHUComponent = ehu_ns.class_("EHUComponent", cg.Component)
+EHUComponent = ehu_ns.class_("EHUComponent", cg.PollingComponent)
 EHUState = ehu_ns.struct("ehu_state_t")
 
 EHUSwitch = ehu_ns.class_("EHUSwitch", eh_switch.Switch, cg.Component)
@@ -74,6 +85,12 @@ EHUStateType = ehu_ns.enum("ehu_state_t", is_class=True)
 CONFIG_SCHEMA = rka_api.api_schema(
     EHUApi, trigger_class=rka_api.update_trigger(EHUApi, EHUState)
 )
+
+
+def diagnostic_counter_schema(icon="mdi:counter"):
+    return sensor.sensor_schema(
+        icon=icon, accuracy_decimals=0, entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+    )
 
 EHU_COMPONENT_SCHEMA = cv.Schema(
     {
@@ -215,6 +232,21 @@ EHU_COMPONENT_SCHEMA = cv.Schema(
             binary_sensor.binary_sensor_schema(device_class=DEVICE_CLASS_RUNNING),
             key=CONF_NAME,
         ),
+        cv.Optional(CONF_COMMUNICATION): binary_sensor.binary_sensor_schema(
+            icon="mdi:lan-connect", entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+        ),
+        cv.Optional(CONF_COMMUNICATION_AGE): sensor.sensor_schema(
+            icon="mdi:timer-sand", unit_of_measurement="s", accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        ),
+        cv.Optional(CONF_RX_FRAMES): diagnostic_counter_schema("mdi:download-network-outline"),
+        cv.Optional(CONF_TX_FRAMES): diagnostic_counter_schema("mdi:upload-network-outline"),
+        cv.Optional(CONF_CRC_ERRORS): diagnostic_counter_schema("mdi:alert-circle-outline"),
+        cv.Optional(CONF_FRAME_TIMEOUTS): diagnostic_counter_schema("mdi:timer-alert-outline"),
+        cv.Optional(CONF_INVALID_FRAMES): diagnostic_counter_schema("mdi:message-alert-outline"),
+        cv.Optional(CONF_COMMAND_RETRIES): diagnostic_counter_schema("mdi:sync-alert"),
+        cv.Optional(CONF_COMMAND_FAILURES): diagnostic_counter_schema("mdi:close-circle-outline"),
+        cv.Optional(CONF_QUEUE_OVERFLOWS): diagnostic_counter_schema("mdi:tray-alert"),
     }
 ).extend(cv.polling_component_schema("15s"))
 
@@ -332,6 +364,20 @@ async def new_ehu(config):
         cg.RawExpression(f"&{var.st().led_mode}"),
     )
     await setup_select(config, CONF_LED_PRESET, var.set_led_preset_select, [])
+
+    await setup_binary_sensor(config, CONF_COMMUNICATION, var.set_communication)
+    for key, setter in (
+        (CONF_COMMUNICATION_AGE, var.set_communication_age),
+        (CONF_RX_FRAMES, var.set_rx_frames),
+        (CONF_TX_FRAMES, var.set_tx_frames),
+        (CONF_CRC_ERRORS, var.set_crc_errors),
+        (CONF_FRAME_TIMEOUTS, var.set_frame_timeouts),
+        (CONF_INVALID_FRAMES, var.set_invalid_frames),
+        (CONF_COMMAND_RETRIES, var.set_command_retries),
+        (CONF_COMMAND_FAILURES, var.set_command_failures),
+        (CONF_QUEUE_OVERFLOWS, var.set_queue_overflows),
+    ):
+        await setup_sensor(config, key, setter)
 
     if CONF_TIME_ID in config:
         time_ = await cg.get_variable(config[CONF_TIME_ID])

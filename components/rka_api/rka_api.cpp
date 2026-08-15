@@ -28,11 +28,16 @@ void RKAListenerBase::on_frame(const rka_any_frame_t &frame, size_t size) {
       this->on_error(*reinterpret_cast<const rka_error_t *>(frame.data));
     }
   } else {
-    ESP_LOGW(TAG, "Unknown packet: %02X: %s", frame.type, format_hex_pretty(frame.data, size).c_str());
+    const size_t payload_size = size > sizeof(rka_any_frame_t::type) ? size - sizeof(rka_any_frame_t::type) : 0;
+    ESP_LOGW(TAG, "Unknown packet: %02X: %s", frame.type, format_hex_pretty(frame.data, payload_size).c_str());
   }
 }
 
 bool RKAListenerBase::check_packet_size_(size_t frame_size, size_t expected_data_size) const {
+  if (frame_size < sizeof(rka_any_frame_t::type)) {
+    ESP_LOGW(TAG, "Invalid packet size, frame has no packet type: %zu", frame_size);
+    return false;
+  }
   size_t actual = frame_size - sizeof(rka_any_frame_t::type);
   if (expected_data_size == actual) {
     return true;

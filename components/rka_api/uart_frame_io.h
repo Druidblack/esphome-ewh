@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <cstring>
 #include <functional>
 
 #include "esphome/core/log.h"
@@ -18,14 +20,6 @@
 namespace esphome {
 namespace rka_api {
 
-// template<class U> class UartReader : public U {
-//  public:
-//   int available() { return U::available(); }
-//   bool read_array(uint8_t *data, size_t size) { return U::read_array(data, size); };
-//   void write_array(const uint8_t *data, size_t size) { U::write_array(data, size); };
-//   void flush() { U::flush(); };
-// };
-
 // max_frame_size_value - size of frame data without magic, size and crc
 template<size_t max_frame_size_value, uint8_t magic_value = 0xAA, typename size_type = uint8_t,
          typename crc_type = uint8_t>
@@ -34,7 +28,6 @@ class UartFrameIO {
   static_assert(std::is_integral<crc_type>::value);
 
   using magic_type = uint8_t;
-
   constexpr static const char *const TAG = "uart_frame_io";
 
  public:
@@ -45,69 +38,85 @@ class UartFrameIO {
   struct rx_frame_t : rx_frame_hdr_t {
     uint8_t data[sizeof(crc_type)];
     crc_type crc() const { return *reinterpret_cast<const crc_type *>(&this->data[this->size]); }
-    /// Check frame is valid with magic and whole frame size (magic + size + data + CRC).
     bool is_valid() const { return this->magic == magic_value; }
     bool is_valid_size(size_t whole_frame_size) const {
-      return whole_frame_size - this->size - sizeof(rx_frame_t) == 0;
+      return whole_frame_size >= sizeof(rx_frame_t) && whole_frame_size - this->size - sizeof(rx_frame_t) == 0;
     }
   } PACKED;
 
   template<class U> void read(U *uart) {
     auto frame = this->rx_.frame();
+
+    // Do not let a truncated frame poison the parser indefinitely.
+    if (this->rx_in_progress_() &&
+        static_cast<uint32_t>(millis() - this->last_rx_byte_ms_) > this->inter_byte_timeout_ms_) {
+      ESP_LOGW(TAG, "RX frame timeout after %u ms, resetting parser", this->inter_byte_timeout_ms_);
+      this->frame_timeouts_++;
+      this->rx_.reset();
+      this->last_rx_byte_ms_ = 0;
+      frame = this->rx_.frame();
+    }
+
     while (uart->available()) {
       if (frame->magic == 0) {
-        // read magic
         if (uart->read_array(&frame->magic, sizeof(magic_type))) {
+          this->note_rx_byte_();
           ESP_LOGVV(TAG, "Read magic: 0x%X", frame->magic);
           if (frame->magic != magic_value) {
             ESP_LOGW(TAG, "Not expected magic: 0x%X", frame->magic);
+            this->invalid_frames_++;
             frame->magic = 0;
           }
         }
         continue;
       }
       if (frame->size == 0) {
-        // read size
         if (uart->read_array(&frame->size, sizeof(size_type))) {
+          this->note_rx_byte_();
           ESP_LOGVV(TAG, "Read size: %zu", static_cast<size_t>(frame->size));
-          if (frame->size > max_frame_size_value) {
-            ESP_LOGW(TAG, "Frame size is larger than data buffer: %zu > %zu", static_cast<size_t>(frame->size),
+          if (frame->size == 0 || frame->size > max_frame_size_value) {
+            ESP_LOGW(TAG, "Invalid frame size: %zu (allowed 1..%zu)", static_cast<size_t>(frame->size),
                      max_frame_size_value);
+            this->invalid_frames_++;
             this->rx_.reset();
+            this->last_rx_byte_ms_ = 0;
+            frame = this->rx_.frame();
           }
         }
         continue;
       }
       if (this->rx_.size < frame->size) {
-        // read data
         if (uart->read_array(&frame->data[this->rx_.size], sizeof(uint8_t))) {
+          this->note_rx_byte_();
           ESP_LOGVV(TAG, "Read data[%02u]: 0x%02X", this->rx_.size, frame->data[this->rx_.size] & 0xFF);
           this->rx_.size++;
         }
         continue;
       }
       if (this->rx_.size == frame->size) {
-        // read crc
         if (uart->read_array(&frame->data[this->rx_.size], sizeof(crc_type))) {
+          this->note_rx_byte_();
           ESP_LOGVV(TAG, "Read CRC: 0x%02X", frame->data[this->rx_.size] & 0xFF);
           if (this->check_crc(frame)) {
+            this->rx_frames_++;
             RKA_DUMP(TAG, "RX: %s", format_hex_pretty(this->rx_.data, this->rx_.size + sizeof(rx_frame_t)).c_str());
-            if (this->reader_) {
-              this->reader_(frame->data, frame->size);
-            }
+            if (this->reader_) this->reader_(frame->data, frame->size);
           } else {
-            ESP_LOGW(TAG, "Invalid CRC for frame %s, expected",
+            this->crc_errors_++;
+            ESP_LOGW(TAG, "Invalid CRC for frame %s",
                      format_hex_pretty(this->rx_.data, this->rx_.size + sizeof(rx_frame_t)).c_str());
           }
           this->rx_.reset();
+          this->last_rx_byte_ms_ = 0;
         }
-
         esphome::yield();
-        // let perform read next frame on next loop
         break;
       }
       ESP_LOGW(TAG, "Unhandled read operation");
+      this->invalid_frames_++;
       this->rx_.reset();
+      this->last_rx_byte_ms_ = 0;
+      frame = this->rx_.frame();
     }
   }
 
@@ -116,8 +125,12 @@ class UartFrameIO {
   }
 
   template<class U> void write(U *uart, const uint8_t *data, size_t size) {
+    if (size > max_frame_size_value) {
+      ESP_LOGE(TAG, "TX frame is too large: %zu > %zu", size, max_frame_size_value);
+      this->invalid_frames_++;
+      return;
+    }
     rx_frame_hdr_t hdr{.magic = magic_value, .size = static_cast<size_type>(size)};
-
     auto crc = calc_crc(&hdr, sizeof(hdr));
     uart->write_array(reinterpret_cast<uint8_t *>(&hdr), sizeof(hdr));
     if (size != 0) {
@@ -126,14 +139,13 @@ class UartFrameIO {
     }
     uart->write_array(reinterpret_cast<uint8_t *>(&crc), sizeof(crc));
     uart->flush();
+    this->tx_frames_++;
 #if RKA_DO_DUMP_TX
     std::string s = format_hex_pretty(reinterpret_cast<uint8_t *>(&hdr), sizeof(hdr));
     if (size != 0) {
       s += format_hex_pretty(data, size).c_str();
       auto pos = s.find('(');
-      if (pos != std::string::npos) {
-        s.resize(pos - 1);
-      }
+      if (pos != std::string::npos) s.resize(pos - 1);
     }
     s += ' ';
     s += format_hex_pretty(reinterpret_cast<uint8_t *>(&crc), sizeof(crc));
@@ -143,23 +155,39 @@ class UartFrameIO {
 
   using reader_type = std::function<void(const void *data, size_t size)>;
   void set_reader(reader_type &&reader) { this->reader_ = std::move(reader); }
+  void set_inter_byte_timeout(uint32_t timeout_ms) { this->inter_byte_timeout_ms_ = timeout_ms; }
+  uint32_t get_rx_frames() const { return this->rx_frames_; }
+  uint32_t get_tx_frames() const { return this->tx_frames_; }
+  uint32_t get_crc_errors() const { return this->crc_errors_; }
+  uint32_t get_frame_timeouts() const { return this->frame_timeouts_; }
+  uint32_t get_invalid_frames() const { return this->invalid_frames_; }
 
   static crc_type calc_crc(crc_type init, const void *data, size_t size) {
     auto data8 = static_cast<const uint8_t *>(data);
-    while (size--) {
-      init += *data8++;
-    }
+    while (size--) init += *data8++;
     return init;
   }
-
   static crc_type calc_crc(const void *data, size_t size) { return calc_crc(0, data, size); }
-
   bool check_crc(const rx_frame_t *frame) {
     return calc_crc(frame, frame->size + sizeof(rx_frame_hdr_t)) == frame->crc();
-  };
+  }
 
  protected:
   reader_type reader_;
+  uint32_t inter_byte_timeout_ms_{100};
+  uint32_t last_rx_byte_ms_{};
+  uint32_t rx_frames_{};
+  uint32_t tx_frames_{};
+  uint32_t crc_errors_{};
+  uint32_t frame_timeouts_{};
+  uint32_t invalid_frames_{};
+
+  void note_rx_byte_() { this->last_rx_byte_ms_ = millis(); }
+  bool rx_in_progress_() const {
+    const auto *frame = reinterpret_cast<const rx_frame_t *>(this->rx_.data);
+    return frame->magic != 0 || frame->size != 0 || this->rx_.size != 0;
+  }
+
   struct {
     size_type size;
     uint8_t data[max_frame_size_value + sizeof(rx_frame_t)];

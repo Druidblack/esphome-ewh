@@ -1,49 +1,42 @@
 #include <cmath>
 #include "esphome/core/log.h"
-#include "esphome/core/helpers.h"
-#include "ets_component.h"
+#include "bwh_component.h"
 
 namespace esphome {
-namespace ets {
+namespace bwh {
+static const char *const TAG = "bwh.component";
 
-static const char *const TAG = "ets_api";
-static const char *const NOT_IMLP = "not implemented yet";
-
-void ETSComponent::setup() {
-  ETSComponentBase::setup();
-  this->set_interval("ets_diagnostics", DIAGNOSTICS_INTERVAL_MS, [this]() { this->publish_diagnostics_(); });
+void BWHComponent::setup() {
+  BWHComponentBase::setup();
+  this->set_interval("bwh_diagnostics", DIAGNOSTICS_INTERVAL_MS, [this]() { this->publish_diagnostics_(); });
 }
 
-void ETSComponent::dump_config_(const char *TAG) const {
-  LOG_SENSOR("  ", "Floor Temperature", this->floor_temp_);
-  ESP_LOGCONFIG(TAG, "  Temperature control type: %s", NOT_IMLP);
-  ESP_LOGCONFIG(TAG, "  Floor Sensor: %s", NOT_IMLP);
-  ESP_LOGCONFIG(TAG, "  Antifreeze: %s", NOT_IMLP);
-  ESP_LOGCONFIG(TAG, "  Brightness: %s", NOT_IMLP);
-  ESP_LOGCONFIG(TAG, "  Open Window Mode: %s", NOT_IMLP);
-  ESP_LOGCONFIG(TAG, "  Child Lock: %s", NOT_IMLP);
+void BWHComponent::on_state(const bwh_state_t &state) {
+  (void) state;
+  this->publish_diagnostics_();
 }
 
-void ETSComponent::on_invalid_state(const char *reason) {
+void BWHComponent::on_invalid_state(const char *reason) {
   this->semantic_invalid_frames_++;
   ESP_LOGW(TAG, "Ignoring semantically invalid state frame: %s", reason != nullptr ? reason : "unknown reason");
   this->publish_diagnostics_();
 }
 
-void ETSComponent::note_command_retry() {
+void BWHComponent::note_command_retry() {
   this->command_retries_count_++;
   this->publish_diagnostics_();
 }
 
-void ETSComponent::note_command_failure() {
+void BWHComponent::note_command_failure() {
   this->command_failures_count_++;
   this->publish_diagnostics_();
 }
 
-void ETSComponent::publish_diagnostics_() {
+void BWHComponent::publish_diagnostics_() {
 #ifdef USE_BINARY_SENSOR
   if (this->communication_ != nullptr) this->communication_->publish_state(this->is_communication_ok());
 #endif
+#ifdef USE_SENSOR
   auto publish_counter = [](sensor::Sensor *sens, uint32_t value) {
     if (sens != nullptr && (std::isnan(sens->state) || static_cast<uint32_t>(sens->state) != value))
       sens->publish_state(value);
@@ -63,7 +56,8 @@ void ETSComponent::publish_diagnostics_() {
   publish_counter(this->command_retries_sensor_, this->command_retries_count_);
   publish_counter(this->command_failures_sensor_, this->command_failures_count_);
   publish_counter(this->queue_overflows_, this->api_->get_queue_overflows());
+#endif
 }
 
-}  // namespace ets
+}  // namespace bwh
 }  // namespace esphome

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../rka_api/rka_vport.h"
-#include "../../rka_api/rka_api.h"
 #include "../ets_data.h"
 
 namespace esphome {
@@ -13,10 +12,11 @@ struct ets_config {
 };
 
 using ETSUartIO = rka_api::RKAUartIO<ets_config::max_data_size>;
+using ETSVPortBase = rka_api::StableRKAVPortUARTComponent<ETSUartIO>;
 
-class ETSVPort : public rka_api::RKAVPortUARTComponent<ETSUartIO> {
+class ETSVPort : public ETSVPortBase {
  public:
-  explicit ETSVPort(ETSUartIO *io) : rka_api::RKAVPortUARTComponent<ETSUartIO>(io) {}
+  explicit ETSVPort(ETSUartIO *io) : ETSVPortBase(io) {}
   void dump_config() override;
 };
 

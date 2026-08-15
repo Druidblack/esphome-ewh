@@ -1,103 +1,179 @@
+#include <cmath>
+#include <string>
 #include "esphome/core/log.h"
-
 #include "ewh_climate.h"
 
 namespace esphome {
 namespace ewh {
-
 static const char *const TAG = "ewh.climate";
+static const char *const PRESET_MODE1 = "0.7 kW";
+static const char *const PRESET_MODE2 = "1.3 kW";
+static const char *const PRESET_MODE3 = "2.0 kW";
+static const char *const PRESET_NO_FROST = "No Frost";
+static const char *const PRESET_TIMER = "Timer";
+static const char *const PRESET_DEFAULT = PRESET_MODE1;
 
-static const std::string PRESET_MODE1 = "0.7 kW";
-static const std::string PRESET_MODE2 = "1.3 kW";
-static const std::string PRESET_MODE3 = "2.0 kW";
-static const std::string PRESET_NO_FROST = "No Frost";
-static const std::string PRESET_TIMER = "Timer";
-static const std::string &PRESET_DEFAULT = PRESET_MODE1;
+void EWHClimate::setup() {
+  // ESPHome 2026.6+ stores custom preset strings on Climate itself.
+  this->set_supported_custom_presets({PRESET_MODE1, PRESET_MODE2, PRESET_MODE3, PRESET_NO_FROST});
+  this->set_custom_preset_(PRESET_DEFAULT);
+  // Important fix on top of Koguni31: do not hide the inherited RKA setup.
+  EWHComponent::setup();
+}
 
 void EWHClimate::dump_config() {
   LOG_CLIMATE("", "Electrolux Water Heater", this);
   LOG_EWH();
 }
-
 ClimateTraits EWHClimate::traits() {
   auto traits = climate::ClimateTraits();
-
-  traits.set_supports_current_temperature(true);
+  traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
   traits.set_visual_min_temperature(ewh::MIN_TEMPERATURE);
   traits.set_visual_max_temperature(ewh::MAX_TEMPERATURE);
   traits.set_visual_temperature_step(1);
-
-  traits.set_supported_modes({
-      ClimateMode::CLIMATE_MODE_OFF,
-      ClimateMode::CLIMATE_MODE_HEAT,
-  });
-
-  traits.set_supported_custom_presets({
-      PRESET_MODE1, PRESET_MODE2, PRESET_MODE3, PRESET_NO_FROST,
-      // PRESET_TIMER,
-  });
-
-  traits.set_supports_action(true);
-
+  traits.set_supported_modes({ClimateMode::CLIMATE_MODE_OFF, ClimateMode::CLIMATE_MODE_HEAT});
+  traits.add_feature_flags(climate::CLIMATE_SUPPORTS_ACTION);
   return traits;
 }
 
 ewh_mode_t::Mode EWHClimate::to_wh_mode_(ClimateMode mode, const std::string &preset) const {
-  if (mode == ClimateMode::CLIMATE_MODE_OFF) {
-    return ewh_mode_t::MODE_OFF;
-  }
-  if (preset == PRESET_MODE1) {
-    return ewh_mode_t::MODE_700W;
-  }
-  if (preset == PRESET_MODE2) {
-    return ewh_mode_t::MODE_1300W;
-  }
-  if (preset == PRESET_MODE3) {
-    return ewh_mode_t::MODE_2000W;
-  }
-  if (preset == PRESET_NO_FROST) {
-    return ewh_mode_t::MODE_NO_FROST;
-  }
-  if (preset == PRESET_TIMER) {
-    return ewh_mode_t::MODE_700W;
-  }
-  if (mode == ClimateMode::CLIMATE_MODE_HEAT) {
-    return ewh_mode_t::MODE_700W;
-  }
+  if (mode == ClimateMode::CLIMATE_MODE_OFF) return ewh_mode_t::MODE_OFF;
+  if (preset == PRESET_MODE1) return ewh_mode_t::MODE_700W;
+  if (preset == PRESET_MODE2) return ewh_mode_t::MODE_1300W;
+  if (preset == PRESET_MODE3) return ewh_mode_t::MODE_2000W;
+  if (preset == PRESET_NO_FROST) return ewh_mode_t::MODE_NO_FROST;
+  if (preset == PRESET_TIMER) return ewh_mode_t::MODE_700W;
+  if (mode == ClimateMode::CLIMATE_MODE_HEAT) return ewh_mode_t::MODE_700W;
   return ewh_mode_t::MODE_OFF;
 }
 
 void EWHClimate::control(const ClimateCall &call) {
   const auto mode = call.get_mode().value_or(this->mode);
-  const auto preset = call.get_custom_preset().value_or(*this->custom_preset);
+  std::string preset = this->has_custom_preset() ? this->get_custom_preset().c_str() : PRESET_DEFAULT;
+  if (call.has_custom_preset()) preset = call.get_custom_preset().c_str();
   const auto wh_mode = this->to_wh_mode_(mode, preset);
   const auto temp = call.get_target_temperature().value_or(this->target_temperature);
+  uint8_t target;
   if (std::isnan(temp)) {
-    ESP_LOGW(TAG, "No target temperature detected");
+    // OFF must remain usable immediately after boot, before the first state frame has supplied a temperature.
+    if (wh_mode != ewh_mode_t::MODE_OFF) {
+      ESP_LOGW(TAG, "No target temperature detected");
+      return;
+    }
+    target = ewh::MIN_TEMPERATURE;
   } else {
-    this->api_->set_mode(wh_mode, temp);
+    target = static_cast<uint8_t>(temp);
   }
-  // special case to allow achange present when is off
-  if (wh_mode == ewh_mode_t::MODE_OFF && call.get_custom_preset().has_value()) {
-    this->custom_preset = preset;
+  if (target < ewh::MIN_TEMPERATURE || target > ewh::MAX_TEMPERATURE) {
+    ESP_LOGW(TAG, "Target temperature is out of range: %u", target);
+    return;
   }
-  // set_mode do not return value, so we need to request state
-  this->set_timeout(100, [this]() { this->api_->request_state(); });
+
+  if (wh_mode == ewh_mode_t::MODE_OFF && call.has_custom_preset()) {
+    if (this->set_custom_preset_(preset.c_str())) this->publish_state();
+  }
+  this->start_pending_command_(wh_mode, target);
+}
+
+void EWHClimate::start_pending_command_(ewh_mode_t::Mode mode, uint8_t temperature) {
+  this->cancel_timeout("ewh_verify_request");
+  this->cancel_timeout("ewh_verify_response");
+  this->cancel_timeout("ewh_command_retry");
+  this->pending_command_ = true;
+  this->verification_requested_ = false;
+  this->verification_mismatch_seen_ = false;
+  this->pending_mode_ = mode;
+  this->pending_temperature_ = temperature;
+  this->pending_retries_ = 0;
+  this->send_pending_command_();
+}
+
+void EWHClimate::send_pending_command_() {
+  if (!this->pending_command_) return;
+  this->verification_requested_ = false;
+  this->verification_mismatch_seen_ = false;
+  this->api_->set_mode(this->pending_mode_, this->pending_temperature_);
+  this->set_timeout("ewh_verify_request", VERIFY_REQUEST_DELAY_MS, [this]() {
+    if (!this->pending_command_) return;
+    this->verification_requested_ = true;
+    this->verification_mismatch_seen_ = false;
+    this->api_->request_state();
+    this->set_timeout("ewh_verify_response", VERIFY_RESPONSE_TIMEOUT_MS, [this]() {
+      if (this->pending_command_ && this->verification_requested_)
+        this->retry_or_fail_pending_(this->verification_mismatch_seen_ ? "state mismatch" : "verification state timeout");
+    });
+  });
+}
+
+bool EWHClimate::state_matches_pending_(const ewh_state_t &state) const {
+  ewh_state_t::State expected_state = ewh_state_t::STATE_OFF;
+  switch (this->pending_mode_) {
+    case ewh_mode_t::MODE_OFF: expected_state = ewh_state_t::STATE_OFF; break;
+    case ewh_mode_t::MODE_700W: expected_state = ewh_state_t::STATE_700W; break;
+    case ewh_mode_t::MODE_1300W: expected_state = ewh_state_t::STATE_1300W; break;
+    case ewh_mode_t::MODE_2000W: expected_state = ewh_state_t::STATE_2000W; break;
+    case ewh_mode_t::MODE_NO_FROST: expected_state = ewh_state_t::STATE_NO_FROST; break;
+    default: return false;
+  }
+  if (state.state != expected_state) return false;
+  if (this->pending_mode_ == ewh_mode_t::MODE_700W || this->pending_mode_ == ewh_mode_t::MODE_1300W ||
+      this->pending_mode_ == ewh_mode_t::MODE_2000W)
+    return state.target_temperature == this->pending_temperature_;
+  return true;
+}
+
+void EWHClimate::retry_or_fail_pending_(const char *reason) {
+  this->cancel_timeout("ewh_verify_request");
+  this->cancel_timeout("ewh_verify_response");
+  if (!this->pending_command_) return;
+  this->verification_requested_ = false;
+  if (this->pending_retries_ < MAX_COMMAND_RETRIES) {
+    this->pending_retries_++;
+    this->note_command_retry_();
+    ESP_LOGW(TAG, "Command not confirmed (%s), retry %u/%u", reason, this->pending_retries_, MAX_COMMAND_RETRIES);
+    this->set_timeout("ewh_command_retry", 100, [this]() { this->send_pending_command_(); });
+    return;
+  }
+  ESP_LOGW(TAG, "Command failed after %u retries (%s); accepting physical heater state", MAX_COMMAND_RETRIES, reason);
+  this->note_command_failure_();
+  this->clear_pending_command_();
+}
+
+void EWHClimate::clear_pending_command_() {
+  this->cancel_timeout("ewh_verify_request");
+  this->cancel_timeout("ewh_verify_response");
+  this->cancel_timeout("ewh_command_retry");
+  this->pending_command_ = false;
+  this->verification_requested_ = false;
+  this->verification_mismatch_seen_ = false;
+  this->pending_retries_ = 0;
 }
 
 void EWHClimate::on_state(const ewh_state_t &status) {
   ESP_LOGV(TAG, "Got st: %u, tT: %u, cT=%u", status.state, status.target_temperature, status.current_temperature);
+  if (this->pending_command_ && this->verification_requested_) {
+    if (this->state_matches_pending_(status)) {
+      ESP_LOGD(TAG, "Control command confirmed by heater state");
+      this->clear_pending_command_();
+    } else {
+      // Do not retry immediately: an unsolicited state may have crossed our
+      // verification request. Wait for the response window to expire.
+      this->verification_mismatch_seen_ = true;
+    }
+  }
 
   bool has_changes{};
   if (status.target_temperature < ewh::MIN_TEMPERATURE || status.target_temperature > ewh::MAX_TEMPERATURE) {
-    ESP_LOGW(TAG, "Target temperarue is out of range %u", status.target_temperature);
-    this->target_temperature = NAN;
+    ESP_LOGW(TAG, "Target temperature is out of range %u", status.target_temperature);
+    if (!std::isnan(this->target_temperature)) {
+      this->target_temperature = NAN;
+      has_changes = true;
+    }
   } else if (std::isnan(this->target_temperature) ||
              static_cast<uint8_t>(this->target_temperature) != status.target_temperature) {
     this->target_temperature = status.target_temperature;
     has_changes = true;
   }
-
   if (std::isnan(this->current_temperature) ||
       static_cast<uint8_t>(this->current_temperature) != status.current_temperature) {
     this->current_temperature = status.current_temperature;
@@ -106,81 +182,28 @@ void EWHClimate::on_state(const ewh_state_t &status) {
 
   auto mode = climate::CLIMATE_MODE_OFF;
   auto action = climate::CLIMATE_ACTION_OFF;
-  auto preset = *this->custom_preset;
+  std::string preset = this->has_custom_preset() ? this->get_custom_preset().c_str() : PRESET_DEFAULT;
   if (status.state != ewh_state_t::STATE_OFF) {
     mode = climate::CLIMATE_MODE_HEAT;
     const bool is_heating =
         (static_cast<int>(status.target_temperature) - static_cast<int>(status.current_temperature)) > 1;
     action = is_heating ? climate::CLIMATE_ACTION_HEATING : ClimateAction::CLIMATE_ACTION_IDLE;
-    if (status.state == ewh_state_t::STATE_700W) {
-      preset = PRESET_MODE1;
-    } else if (status.state == ewh_state_t::STATE_1300W) {
-      preset = PRESET_MODE2;
-    } else if (status.state == ewh_state_t::STATE_2000W) {
-      preset = PRESET_MODE3;
-    } else if (status.state == ewh_state_t::STATE_NO_FROST) {
-      preset = PRESET_NO_FROST;
-    } else if (status.state == ewh_state_t::STATE_TIMER) {
-      preset = PRESET_TIMER;
-    } else {
-      ESP_LOGW(TAG, "Unknown state %02X", status.state);
-    }
+    if (status.state == ewh_state_t::STATE_700W) preset = PRESET_MODE1;
+    else if (status.state == ewh_state_t::STATE_1300W) preset = PRESET_MODE2;
+    else if (status.state == ewh_state_t::STATE_2000W) preset = PRESET_MODE3;
+    else if (status.state == ewh_state_t::STATE_NO_FROST) preset = PRESET_NO_FROST;
+    else if (status.state == ewh_state_t::STATE_TIMER) preset = PRESET_TIMER;
+    else ESP_LOGW(TAG, "Unknown state %02X", status.state);
   }
 
-  if (mode != this->mode) {
-    this->mode = mode;
-    has_changes = true;
+  if (mode != this->mode) { this->mode = mode; has_changes = true; }
+  if (action != this->action) { this->action = action; has_changes = true; }
+  if (preset != PRESET_TIMER && (!this->has_custom_preset() || preset != this->get_custom_preset().c_str())) {
+    if (this->set_custom_preset_(preset.c_str())) has_changes = true;
   }
-  if (action != this->action) {
-    this->action = action;
-    has_changes = true;
-  }
-  if (preset != *this->custom_preset) {
-    this->custom_preset = preset;
-    has_changes = true;
-  }
-
-  if (has_changes) {
-    this->publish_state();
-  }
-
+  if (has_changes) this->publish_state();
   EWHComponent::on_state(status);
 }
-
-// void EWHClimate::read(const ewh_state_t &state) {
-//   if (state.state == ewh_state_t::STATE_TIMER) {
-//     // timer set outside this component, so update state immediately
-//     this->mode = climate::CLIMATE_MODE_HEAT;
-//     this->action = climate::CLIMATE_ACTION_HEATING;
-//     this->custom_preset = PRESET_TIMER;
-//     this->publish_state();
-//     return;
-//   }
-
-//   bool fail{};
-//   if (this->target_temperature != state.target_temperature) {
-//     fail = true;
-//   } else if (this->mode == climate::CLIMATE_MODE_OFF) {
-//     fail = state.state != ewh_state_t::STATE_OFF;
-//   } else if (this->custom_preset.has_value()) {
-//     auto preset = *this->custom_preset;
-//     fail = (preset == PRESET_MODE1 && state.state != ewh_state_t::STATE_700W) ||
-//            (preset == PRESET_MODE2 && state.state != ewh_state_t::STATE_1300W) ||
-//            (preset == PRESET_MODE3 && state.state != ewh_state_t::STATE_2000W) ||
-//            (preset == PRESET_NO_FROST && state.state != ewh_state_t::STATE_NO_FROST) ||
-//            (preset == PRESET_TIMER && state.state != ewh_state_t::STATE_TIMER);
-//   }
-
-//   if (fail) {
-//     auto preset = *this->custom_preset;
-//     auto wh_mode = this->to_wh_mode_(this->mode, preset);
-//     if (preset != PRESET_TIMER) {
-//       this->ewh_->set_mode(wh_mode, this->target_temperature);
-//     } else {
-//       this->ewh_->set_timer(0, 0, this->target_temperature, wh_mode);
-//     }
-//   }
-// }
 
 }  // namespace ewh
 }  // namespace esphome

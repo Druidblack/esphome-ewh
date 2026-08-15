@@ -22,7 +22,7 @@ substitutions:
 ## Please do not change packages order it is very important, just comment/uncomment
 packages:
   remote:
-    url: https://github.com/dentra/esphome-ewh
+    url: https://github.com/Druidblack/esphome-ewh
     ref: master # cant use substitutions here
     files:
       ## Enable additional WiFi signal sensor. Comment next line to disable.
@@ -46,6 +46,7 @@ packages:
 
 ## Enable Home Assistant API connection. Please comment if you plan to use MQTT.
 api:
+  reboot_timeout: 0s
 
 ## Uncomment to enable MQTT connection.
 # mqtt:
@@ -58,6 +59,7 @@ api:
 wifi:
   ssid: $wifi_ssid
   password: $wifi_password
+  power_save_mode: none
 
 time:
   - platform: $time_platform
@@ -69,6 +71,8 @@ uart:
 
 vport:
   - platform: ewh
+    command_interval: 50ms
+    command_queue_size: 32
 
 climate:
   - platform: ewh
@@ -77,6 +81,36 @@ climate:
     # Optional, Bacteria Stop Technology switch
     bst:
       name: "BST"
+    communication:
+      name: "Communication"
+      disabled_by_default: true
+    communication_age:
+      name: "Communication age"
+      disabled_by_default: true
+    rx_frames:
+      name: "UART RX Frames"
+      disabled_by_default: true
+    tx_frames:
+      name: "UART TX Frames"
+      disabled_by_default: true
+    crc_errors:
+      name: "UART CRC Errors"
+      disabled_by_default: true
+    frame_timeouts:
+      name: "UART Frame Timeouts"
+      disabled_by_default: true
+    invalid_frames:
+      name: "UART Invalid Frames"
+      disabled_by_default: true
+    command_retries:
+      name: "Command Retries"
+      disabled_by_default: true
+    command_failures:
+      name: "Command Failures"
+      disabled_by_default: true
+    queue_overflows:
+      name: "Command Queue Overflows"
+      disabled_by_default: true
 
 ## Uncomment to enable and override cloud support
 # rka_cloud:
