@@ -9,12 +9,11 @@ substitutions:
   board: esp32dev
 
 esphome:
-  platformio_options:
-    build_flags:
-      - -std=gnu++17
-    build_unflags:
-      - -std=gnu++11
-    lib_ldf_mode: "chain" # required for ESP32 AsyncUDP library search
+  # ESPHome 2026.6+ uses native build flags for both PlatformIO and the
+  # native ESP-IDF toolchain. Keep this outside platformio_options to avoid
+  # deprecation/ignored-option warnings with ESP-IDF.
+  build_flags:
+    - -std=gnu++17
 
 esp32:
   variant: $variant

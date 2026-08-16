@@ -138,8 +138,8 @@ class RKAComponent : public component_t, public listener_t {
     if (age <= COMMUNICATION_TIMEOUT_MS) return;
 
     if (!this->communication_warning_) {
-      ESP_LOGW(internal::TAG_COMPONENT, "No valid RKA state frames for %u s, starting recovery",
-               COMMUNICATION_TIMEOUT_MS / 1000);
+      ESP_LOGW(internal::TAG_COMPONENT, "No valid RKA state frames for %" PRIu32 " s, starting recovery",
+               static_cast<uint32_t>(COMMUNICATION_TIMEOUT_MS / 1000U));
       this->communication_warning_ = true;
       this->status_set_warning();
     }

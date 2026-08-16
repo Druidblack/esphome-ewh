@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cinttypes>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -50,7 +51,7 @@ class UartFrameIO {
     // Do not let a truncated frame poison the parser indefinitely.
     if (this->rx_in_progress_() &&
         static_cast<uint32_t>(millis() - this->last_rx_byte_ms_) > this->inter_byte_timeout_ms_) {
-      ESP_LOGW(TAG, "RX frame timeout after %u ms, resetting parser", this->inter_byte_timeout_ms_);
+      ESP_LOGW(TAG, "RX frame timeout after %" PRIu32 " ms, resetting parser", this->inter_byte_timeout_ms_);
       this->frame_timeouts_++;
       this->rx_.reset();
       this->last_rx_byte_ms_ = 0;
